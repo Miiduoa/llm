@@ -1,0 +1,8 @@
+# 推理設定（可搭配 LoRA adapter）
+model_name_or_path: TinyLlama/TinyLlama-1.1B-Chat-v1.0
+adapter_path: outputs/tinyllama-lora  # 若無 LoRA，設為空或刪除此鍵
+use_mps: true
+max_seq_length: 512
+default_temperature: 0.7
+default_top_p: 0.95
+default_max_new_tokens: 256

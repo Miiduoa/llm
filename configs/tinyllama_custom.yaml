@@ -1,0 +1,31 @@
+# 使用自定義 JSONL 資料的訓練設定
+model_name_or_path: TinyLlama/TinyLlama-1.1B-Chat-v1.0
+output_dir: outputs/tinyllama-custom
+seed: 42
+
+# 使用自定義資料
+jsonl_path: data/combined/train.jsonl
+text_field: text
+
+# training
+max_steps: 100
+learning_rate: 2.0e-4
+weight_decay: 0.0
+warmup_ratio: 0.03
+lr_scheduler_type: cosine
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 4
+max_seq_length: 512
+save_steps: 50
+logging_steps: 10
+
+# LoRA
+lora_r: 8
+lora_alpha: 16
+lora_dropout: 0.05
+lora_target_modules: [q_proj, k_proj, v_proj, o_proj]
+
+# hardware
+bf16: false
+fp16: false
+use_mps: true

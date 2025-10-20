@@ -1,0 +1,16 @@
+transformers
+torch
+datasets
+accelerate
+peft
+trl
+tqdm
+pyyaml
+
+fastapi
+uvicorn
+pydantic
+evaluate
+jsonlines
+wandb
+tensorboard

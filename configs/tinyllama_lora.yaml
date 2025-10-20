@@ -1,0 +1,33 @@
+# macOS MPS/CPU friendly LoRA fine-tuning config
+model_name_or_path: TinyLlama/TinyLlama-1.1B-Chat-v1.0
+output_dir: outputs/tinyllama-lora
+seed: 42
+
+# data
+dataset_name: tatsu-lab/alpaca
+split: train
+text_field: text
+
+# training
+max_steps: 200
+learning_rate: 2.0e-4
+weight_decay: 0.0
+warmup_ratio: 0.03
+lr_scheduler_type: cosine
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 8
+max_seq_length: 512
+save_steps: 100
+logging_steps: 10
+
+# LoRA
+lora_r: 8
+lora_alpha: 16
+lora_dropout: 0.05
+lora_target_modules: [q_proj, k_proj, v_proj, o_proj]
+
+# hardware
+bf16: false
+fp16: false
+use_mps: true
+

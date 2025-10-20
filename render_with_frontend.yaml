@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: llm-infer
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: bash -lc 'PYTHONPATH=. uvicorn src.server_with_frontend:app --host 0.0.0.0 --port $PORT'
+    envVars:
+      - key: INFER_CONFIG
+        value: configs/infer.yaml
+      - key: HF_HUB_DISABLE_TELEMETRY
+        value: "1"

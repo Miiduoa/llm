@@ -1,0 +1,29 @@
+# Ray Train 配置（用於大規模分散式訓練）
+train_loop_config:
+  model_name: "meta-llama/Meta-Llama-3.1-8B-Instruct"
+  output_dir: "outputs/ray-llama3-8b"
+  max_steps: 5000
+  learning_rate: 1.5e-4
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 16
+  max_seq_length: 4096
+  lora_r: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+
+# Ray 設定
+num_workers: 4
+use_gpu: true
+resources_per_worker:
+  CPU: 2
+  GPU: 1
+
+# 資料設定
+dataset_config:
+  jsonl_path: "data/combined/train.jsonl"
+  max_samples: 10000
+
+# 檢查點設定
+checkpoint_config:
+  checkpoint_frequency: 500
+  num_to_keep: 3

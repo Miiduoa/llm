@@ -1,0 +1,35 @@
+# 範例：升級到 8B 級模型的 LoRA 設定（需多 GPU/雲端）
+model_name_or_path: meta-llama/Meta-Llama-3.1-8B-Instruct
+output_dir: outputs/llama3-8b-lora
+seed: 42
+
+# data（可替換為自建混合配方）
+dataset_name: tatsu-lab/alpaca
+split: train
+text_field: text
+
+# training
+max_steps: 1000
+learning_rate: 1.5e-4
+weight_decay: 0.0
+warmup_ratio: 0.03
+lr_scheduler_type: cosine
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 32
+max_seq_length: 4096
+save_steps: 200
+logging_steps: 10
+
+# LoRA（可擴充到更多模組，如 gate_up_proj 等）
+lora_r: 16
+lora_alpha: 32
+lora_dropout: 0.05
+lora_target_modules: [q_proj, k_proj, v_proj, o_proj]
+
+# hardware（雲端/多 GPU 環境）
+bf16: true
+fp16: false
+use_mps: false
+
+# deepspeed：若使用，於 TrainingArguments 傳入路徑
+# deepspeed: configs/deepspeed_zero2.json

@@ -1,0 +1,5 @@
+compute_environment: LOCAL_MACHINE
+device_placement: true
+mixed_precision: no
+distributed_type: NO
+num_processes: 1

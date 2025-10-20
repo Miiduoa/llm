@@ -1,0 +1,34 @@
+# 實驗追蹤設定
+project_name: "llm-training"
+experiment_name: "tinyllama-lora-{timestamp}"
+tags: ["lora", "tinyllama", "custom-data"]
+
+# Wandb 設定
+use_wandb: true
+wandb_api_key: null  # 從環境變數 WANDB_API_KEY 讀取
+log_model: true
+log_predictions: true
+log_frequency: 10
+
+# TensorBoard 設定
+use_tensorboard: true
+tensorboard_log_dir: "outputs/tensorboard"
+
+# 指標記錄
+metrics_to_log:
+  - "train/loss"
+  - "train/learning_rate"
+  - "train/grad_norm"
+  - "train/epoch"
+  - "train/step"
+
+# 模型檢查點
+checkpoint_strategy:
+  save_strategy: "steps"
+  save_steps: 100
+  save_total_limit: 3
+  load_best_model_at_end: false
+
+# 預測範例記錄
+log_predictions_every: 50
+max_predictions_to_log: 5
