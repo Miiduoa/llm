@@ -15,7 +15,7 @@ from peft import LoraConfig, get_peft_model
 
 
 def load_config(path: str) -> dict:
-    with open(path, "r") as f:
+    with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
@@ -28,29 +28,42 @@ def prepare_tokenizer(model_name: str):
 
 
 def load_jsonl_data(file_path: str, text_field: str = "text"):
-    """Load JSONL data and format for training"""
     rows = []
+
     with open(file_path, "r", encoding="utf-8") as f:
-        for line in f:
-            data = json.loads(line.strip())
+        for line_number, line in enumerate(f, start=1):
+            if not line.strip():
+                continue
+
+            data = json.loads(line)
             if "prompt" in data and "response" in data:
-                # Format as instruction-following
-                text = f"### 指令:\n{data['prompt']}\n\n### 回應:\n{data['response']}"
+                text = (
+                    f"### 指令:\n{data['prompt']}\n\n"
+                    f"### 回應:\n{data['response']}"
+                )
             else:
                 text = data.get(text_field, "")
-            rows.append({"text": text})
+
+            if not str(text).strip():
+                raise ValueError(
+                    f"empty training text at line {line_number}"
+                )
+
+            rows.append({"text": str(text)})
+
+    if not rows:
+        raise ValueError("training JSONL is empty")
+
     return Dataset.from_list(rows)
 
 
 def format_examples(example, tokenizer, max_length: int):
-    text = example["text"]
-    tokenized = tokenizer(
-        text,
+    return tokenizer(
+        example["text"],
         truncation=True,
         max_length=max_length,
         padding=False,
     )
-    return tokenized
 
 
 def maybe_enable_mps(use_mps: bool):
@@ -70,7 +83,6 @@ def main():
     output_dir = cfg.get("output_dir", "outputs")
     seed = cfg.get("seed", 42)
 
-    # Support both dataset_name and jsonl_path
     dataset_name = cfg.get("dataset_name")
     jsonl_path = cfg.get("jsonl_path")
     split = cfg.get("split", "train")
@@ -81,8 +93,14 @@ def main():
     weight_decay = cfg.get("weight_decay", 0.0)
     warmup_ratio = cfg.get("warmup_ratio", 0.03)
     scheduler = cfg.get("lr_scheduler_type", "cosine")
-    per_device_train_batch_size = cfg.get("per_device_train_batch_size", 1)
-    gradient_accumulation_steps = cfg.get("gradient_accumulation_steps", 8)
+    per_device_train_batch_size = cfg.get(
+        "per_device_train_batch_size",
+        1,
+    )
+    gradient_accumulation_steps = cfg.get(
+        "gradient_accumulation_steps",
+        8,
+    )
     max_seq_length = cfg.get("max_seq_length", 512)
     save_steps = cfg.get("save_steps", 100)
     logging_steps = cfg.get("logging_steps", 10)
@@ -90,12 +108,17 @@ def main():
     lora_r = cfg.get("lora_r", 8)
     lora_alpha = cfg.get("lora_alpha", 16)
     lora_dropout = cfg.get("lora_dropout", 0.05)
-    lora_target_modules = cfg.get("lora_target_modules", ["q_proj", "k_proj", "v_proj", "o_proj"])
+    lora_target_modules = cfg.get(
+        "lora_target_modules",
+        ["q_proj", "k_proj", "v_proj", "o_proj"],
+    )
 
     use_mps = cfg.get("use_mps", True)
+    fp16 = bool(cfg.get("fp16", False))
+    bf16 = bool(cfg.get("bf16", False))
+    deepspeed = cfg.get("deepspeed")
 
     torch.manual_seed(seed)
-
     device = maybe_enable_mps(use_mps)
     print(f"Using device: {device}")
 
@@ -108,7 +131,6 @@ def main():
         device_map=None,
     )
 
-    # Apply LoRA
     lora_config = LoraConfig(
         r=lora_r,
         lora_alpha=lora_alpha,
@@ -118,7 +140,6 @@ def main():
         task_type="CAUSAL_LM",
     )
     model = get_peft_model(model, lora_config)
-
     model.to(device)
 
     print("Loading dataset...")
@@ -129,13 +150,19 @@ def main():
         dataset = load_dataset(dataset_name, split=split)
     else:
         raise ValueError("Must provide either dataset_name or jsonl_path")
-    
+
     tokenized_ds = dataset.map(
         lambda ex: format_examples(ex, tokenizer, max_seq_length),
-        remove_columns=[col for col in dataset.column_names if col != text_field],
+        remove_columns=[
+            col for col in dataset.column_names
+            if col != "text"
+        ],
     )
 
-    data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+    data_collator = DataCollatorForLanguageModeling(
+        tokenizer=tokenizer,
+        mlm=False,
+    )
 
     training_args = TrainingArguments(
         output_dir=output_dir,
@@ -149,8 +176,9 @@ def main():
         num_train_epochs=1,
         max_steps=max_steps,
         lr_scheduler_type=scheduler,
-        fp16=False,
-        bf16=False,
+        fp16=fp16,
+        bf16=bf16,
+        deepspeed=deepspeed,
         logging_dir=os.path.join(output_dir, "logs"),
         report_to=["none"],
     )
