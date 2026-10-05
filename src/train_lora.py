@@ -14,7 +14,7 @@ from peft import LoraConfig, get_peft_model
 
 
 def load_config(path: str) -> dict:
-    with open(path, "r") as f:
+    with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
@@ -30,13 +30,12 @@ def format_examples(example, tokenizer, max_length: int, text_field: str):
     text = example.get(text_field) or example.get("text")
     if text is None:
         raise ValueError(f"Missing text field '{text_field}' in dataset example")
-    tokenized = tokenizer(
+    return tokenizer(
         text,
         truncation=True,
         max_length=max_length,
         padding=False,
     )
-    return tokenized
 
 
 def maybe_enable_mps(use_mps: bool):
@@ -74,9 +73,15 @@ def main():
     lora_r = cfg.get("lora_r", 8)
     lora_alpha = cfg.get("lora_alpha", 16)
     lora_dropout = cfg.get("lora_dropout", 0.05)
-    lora_target_modules = cfg.get("lora_target_modules", ["q_proj", "k_proj", "v_proj", "o_proj"])
+    lora_target_modules = cfg.get(
+        "lora_target_modules",
+        ["q_proj", "k_proj", "v_proj", "o_proj"],
+    )
 
     use_mps = cfg.get("use_mps", True)
+    fp16 = bool(cfg.get("fp16", False))
+    bf16 = bool(cfg.get("bf16", False))
+    deepspeed = cfg.get("deepspeed")
 
     torch.manual_seed(seed)
 
@@ -88,11 +93,10 @@ def main():
     print("Loading base model...")
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
-        torch_dtype=torch.float32,  # safer for CPU/MPS
+        torch_dtype=torch.float32,
         device_map=None,
     )
 
-    # Apply LoRA
     lora_config = LoraConfig(
         r=lora_r,
         lora_alpha=lora_alpha,
@@ -102,17 +106,22 @@ def main():
         task_type="CAUSAL_LM",
     )
     model = get_peft_model(model, lora_config)
-
     model.to(device)
 
     print("Loading dataset...")
     dataset = load_dataset(dataset_name, split=split)
     tokenized_ds = dataset.map(
         lambda ex: format_examples(ex, tokenizer, max_seq_length, text_field),
-        remove_columns=[col for col in dataset.column_names if col != text_field],
+        remove_columns=[
+            col for col in dataset.column_names
+            if col != text_field
+        ],
     )
 
-    data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+    data_collator = DataCollatorForLanguageModeling(
+        tokenizer=tokenizer,
+        mlm=False,
+    )
 
     training_args = TrainingArguments(
         output_dir=output_dir,
@@ -126,8 +135,9 @@ def main():
         num_train_epochs=1,
         max_steps=max_steps,
         lr_scheduler_type=scheduler,
-        fp16=False,
-        bf16=False,
+        fp16=fp16,
+        bf16=bf16,
+        deepspeed=deepspeed,
         logging_dir=os.path.join(output_dir, "logs"),
         report_to=["none"],
     )
@@ -150,4 +160,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
