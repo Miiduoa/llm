@@ -131,21 +131,19 @@ def validate_eval_config(config: dict) -> list[str]:
     return errors
 
 
-def validate_jsonl(path: str | Path) -> list[str]:
-    errors = []
+def _load_jsonl_rows(path: str | Path):
     source = Path(path)
-
     if not source.is_file():
-        return [f"missing JSONL: {source}"]
+        return source, [], [f"missing JSONL: {source}"]
+
+    rows = []
+    errors = []
 
     with source.open("r", encoding="utf-8") as handle:
-        row_count = 0
-
         for line_number, line in enumerate(handle, start=1):
             if not line.strip():
                 continue
 
-            row_count += 1
             try:
                 payload = json.loads(line)
             except json.JSONDecodeError as exc:
@@ -158,26 +156,48 @@ def validate_jsonl(path: str | Path) -> list[str]:
                 errors.append(f"line {line_number}: expected object")
                 continue
 
-            text = payload.get("text")
-            prompt = payload.get("prompt")
-            response = payload.get("response")
+            rows.append((line_number, payload))
 
-            has_text = isinstance(text, str) and bool(text.strip())
-            has_pair = (
-                isinstance(prompt, str)
-                and bool(prompt.strip())
-                and isinstance(response, str)
-                and bool(response.strip())
+    if not rows and not errors:
+        errors.append("JSONL contains no records")
+
+    return source, rows, errors
+
+
+def validate_jsonl(path: str | Path) -> list[str]:
+    _, rows, errors = _load_jsonl_rows(path)
+
+    for line_number, payload in rows:
+        text = payload.get("text")
+        prompt = payload.get("prompt")
+        response = payload.get("response")
+
+        has_text = isinstance(text, str) and bool(text.strip())
+        has_pair = (
+            isinstance(prompt, str)
+            and bool(prompt.strip())
+            and isinstance(response, str)
+            and bool(response.strip())
+        )
+
+        if not (has_text or has_pair):
+            errors.append(
+                f"line {line_number}: need non-empty text "
+                "or prompt + response"
             )
 
-            if not (has_text or has_pair):
-                errors.append(
-                    f"line {line_number}: need non-empty text "
-                    "or prompt + response"
-                )
+    return errors
 
-    if row_count == 0:
-        errors.append("JSONL contains no records")
+
+def validate_eval_jsonl(path: str | Path) -> list[str]:
+    _, rows, errors = _load_jsonl_rows(path)
+
+    for line_number, payload in rows:
+        prompt = payload.get("prompt")
+        if not isinstance(prompt, str) or not prompt.strip():
+            errors.append(
+                f"line {line_number}: eval record needs non-empty prompt"
+            )
 
     return errors
 
@@ -199,7 +219,7 @@ def check_repository() -> list[str]:
         errors.append(f"{eval_path.relative_to(ROOT)}: {issue}")
 
     eval_jsonl = ROOT / eval_config["input_jsonl"]
-    for issue in validate_jsonl(eval_jsonl):
+    for issue in validate_eval_jsonl(eval_jsonl):
         errors.append(f"{eval_jsonl.relative_to(ROOT)}: {issue}")
 
     deepspeed_path = ROOT / "configs" / "deepspeed_zero2.json"
