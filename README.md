@@ -1,134 +1,134 @@
-# LLM Training Starter (macOS-friendly)
+# LLM Fine-tuning Pipeline Lab
 
-## 快速開始
+一個把 LoRA 微調流程拆成「設定、資料、訓練、推理、評估、追蹤」的實驗型 repo。
 
-- 安裝依賴：
-  ```bash
-  pip install -r requirements.txt
-  ```
-- 以 LoRA 在 macOS MPS/CPU 上微調 TinyLlama：
-  ```bash
-  python src/train_lora.py --config configs/tinyllama_lora.yaml
-  ```
+我不把它包裝成「已訓練出一個更好的模型」。目前 repo 真正能證明的是：訓練入口、JSONL data contract、MPS/CPU 路徑、LoRA 設定、推理／批次評估介面，以及設定一致性檢查都已經寫成可檢查的程式。
 
-## 結構
+## Implemented
 
-```
-./
-├── configs/
-│   └── tinyllama_lora.yaml
-├── data/
-│   └── README.md (描述資料格式)
-├── src/
-│   └── train_lora.py
-├── requirements.txt
-└── README.md
-```
+### LoRA training
 
-## 注意
-- 先用小模型在本機驗證流程（MPS），再擴展到分散式/大模型。
-- 請確保 `accelerate` 已正確設定（`accelerate config`）。
-- 若記憶體不足，降低 `per_device_train_batch_size` 或 `max_seq_length`。
-
-
-## 本機啟動推理 API
+兩個訓練入口：
 
 ```bash
-uvicorn src.server:app --reload --host 0.0.0.0 --port 8000
-# 之後：
-curl -X POST http://127.0.0.1:8000/v1/generate \
-  -H 'Content-Type: application/json' \
-  -d '{"prompt": "用 Python 寫個快排。"}'
-```
-
-## Render 部署
-
-1. 將此專案推到 Git（如 GitHub）。
-2. Render 儀表板 > New > Web Service > 連接你的 repo。
-3. Render 會讀取 `render.yaml`，自動設定 build/start 指令。
-4. 首次部署完成後，測試：
-   ```bash
-   curl -X POST https://<your-service-on-render>/v1/generate \
-     -H 'Content-Type: application/json' \
-     -d '{"prompt": "請用繁體中文解釋二分搜尋。"}'
-   ```
-
-> 若要使用 LoRA adapter，先將 `outputs/tinyllama-lora` 夾推到雲端存儲或打包隨部署，並於環境變數/檔案掛載調整 `INFER_CONFIG` 指向對應路徑。
-
-
-## 使用自定義資料訓練
-
-```bash
-# 準備資料
-python src/data/prepare.py
-
-# 使用自定義 JSONL 訓練
+python src/train_lora.py --config configs/tinyllama_lora.yaml
 python src/train_lora_jsonl.py --config configs/tinyllama_custom.yaml
 ```
 
-## 前端介面
+目前支援：
 
-- 本機啟動（含前端）：
-  ```bash
-  uvicorn src.server_with_frontend:app --reload --host 0.0.0.0 --port 8000
-  # 開啟 http://127.0.0.1:8000
-  ```
+- Hugging Face dataset
+- local JSONL
+- LoRA target modules
+- config-driven `fp16 / bf16`
+- optional DeepSpeed config path
+- MPS / CPU fallback
+- gradient accumulation
+- max steps / scheduler / checkpoint settings
 
-- Render 部署（含前端）：
-  - 使用 `render_with_frontend.yaml` 配置
-  - 部署後直接訪問你的 Render URL 即可使用聊天介面
-
-## 升級到 8B 模型
-
-```bash
-# 在雲端環境（多 GPU）
-accelerate launch src/train_lora_jsonl.py --config configs/models/llama3_8b_lora.yaml
-```
-
-
-## 實驗追蹤與分散式訓練
-
-### 實驗追蹤（Wandb + TensorBoard）
+### Inference and batch evaluation
 
 ```bash
-# 設定 Wandb
-./scripts/setup_wandb.sh
-
-# 帶追蹤的訓練
-python src/train_with_tracking.py --config configs/tinyllama_custom.yaml --tracking-config configs/experiment_tracking.yaml
+python -m uvicorn src.server:app --host 127.0.0.1 --port 8000
+python src/eval.py --config configs/eval.yaml
 ```
 
-### 分散式訓練
+`configs/infer.yaml` 可指定 base model 與 local LoRA adapter。
 
-#### 多 GPU 訓練（Accelerate）
+### Experiment tracking
+
+`src/train_with_tracking.py` 支援 W&B / TensorBoard 設定。Prediction callback 直接使用 Trainer 傳入的 model，並把 input tensor 移到 model device，避免 tracking 路徑跟實際訓練 device 脫節。
+
+## Lightweight validation
+
+CI 不下載模型，也不跑 GPU training。它先驗證那些不需要昂貴運算、但很容易出錯的部分：
+
 ```bash
-# 設定 Accelerate
-accelerate config
-
-# 啟動分散式訓練
-./scripts/train_distributed.sh configs/models/llama3_8b_lora.yaml
+pip install -r requirements-ci.txt
+python -m unittest discover -s tests -v
+python -m src.config_check
+python src/data/prepare.py
+python -m src.config_check --jsonl data/combined/train.jsonl
 ```
 
-#### 大規模訓練（Ray Train）
+檢查內容包含：
+
+- training YAML 必要欄位
+- dataset / JSONL source 是否互斥
+- positive batch / step / sequence settings
+- `fp16` 與 `bf16` 不可同時開啟
+- LoRA target modules
+- infer / eval config
+- DeepSpeed JSON syntax
+- eval JSONL data contract
+- generated training JSONL data contract
+
+## Data contract
+
+JSONL 可以使用：
+
+```json
+{"text":"complete training text"}
+```
+
+或：
+
+```json
+{"prompt":"instruction","response":"expected response"}
+```
+
+第二種格式會在 loader 中組成 instruction-following text，再交給 tokenizer。
+
+## Config status
+
+| Config | Status | 用途 |
+|---|---|---|
+| `tinyllama_lora.yaml` | executable path | Hugging Face dataset + LoRA |
+| `tinyllama_custom.yaml` | executable path | local JSONL + LoRA |
+| `models/llama3_8b_lora.yaml` | reference config | 8B 級模型參數範例，需要相符的 GPU 環境 |
+| `deepspeed_zero2.json` | supported config file | 可由 training config 指定 |
+| `ray_train.yaml` | **reference only** | 目前沒有 Ray trainer entrypoint |
+
+## Full training environment
+
+完整模型訓練需要重量依賴：
+
 ```bash
-# 安裝 Ray Train
-pip install "ray[train]"
-
-# 啟動 Ray 訓練
-python -c "
-import ray
-from ray import train
-from ray.train import ScalingConfig
-from ray.train.torch import TorchTrainer
-
-# 這裡需要實作 Ray Train 的訓練函數
-# 參考 configs/ray_train.yaml 配置
-"
+pip install -r requirements.txt
 ```
 
-### 監控與除錯
+主要套件：
 
-- **Wandb**: 查看訓練指標、預測範例、模型權重
-- **TensorBoard**: `tensorboard --logdir outputs/tensorboard`
-- **檢查點**: 自動儲存在 `outputs/` 目錄
+`transformers` · `torch` · `datasets` · `accelerate` · `peft` · `trl`
 
+## Repository layout
+
+```text
+configs/
+  models/
+  tinyllama_lora.yaml
+  tinyllama_custom.yaml
+  infer.yaml
+  eval.yaml
+src/
+  train_lora.py
+  train_lora_jsonl.py
+  train_with_tracking.py
+  infer.py
+  eval.py
+  config_check.py
+  data/prepare.py
+tests/
+data/
+.github/workflows/validate.yml
+```
+
+## What this repo does not claim
+
+- 沒有提交模型 checkpoint
+- 沒有提交 benchmark improvement
+- 沒有宣稱 Llama 3.1 8B config 已在多 GPU 成功訓練
+- Ray config 目前只是 reference，沒有假裝已實作
+- CI 綠燈代表 config / data pipeline 可驗證，不代表模型品質
+
+如果要把它升級成真正的模型實驗報告，下一步應該是固定資料切分、記錄 base vs LoRA benchmark、保存 training metadata，並讓每一個結論都能追溯到 run artifact。
