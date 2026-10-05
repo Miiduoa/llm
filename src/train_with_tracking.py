@@ -27,10 +27,14 @@ class PredictionLoggingCallback(TrainerCallback):
 
     def on_log(self, args, state, control, logs=None, **kwargs):
         self.step_count += 1
-        if self.step_count % self.log_every == 0:
-            self.log_predictions(state.global_step)
+        model = kwargs.get("model")
+        if (
+            model is not None
+            and self.step_count % self.log_every == 0
+        ):
+            self.log_predictions(state.global_step, model)
 
-    def log_predictions(self, step):
+    def log_predictions(self, step, model):
         # 生成一些預測範例
         sample_prompts = [
             "請用 Python 寫個快速排序",
@@ -42,8 +46,13 @@ class PredictionLoggingCallback(TrainerCallback):
         for prompt in sample_prompts[:self.max_examples]:
             inputs = self.tokenizer(prompt, return_tensors="pt", truncation=True, max_length=512)
             with torch.no_grad():
+                device = next(model.parameters()).device
+                inputs = {
+                    key: value.to(device)
+                    for key, value in inputs.items()
+                }
                 outputs = self.tokenizer.decode(
-                    self.trainer.model.generate(
+                    model.generate(
                         **inputs,
                         max_new_tokens=100,
                         do_sample=True,
@@ -175,6 +184,9 @@ def main():
     lora_target_modules = cfg.get("lora_target_modules", ["q_proj", "k_proj", "v_proj", "o_proj"])
 
     use_mps = cfg.get("use_mps", True)
+    fp16 = bool(cfg.get("fp16", False))
+    bf16 = bool(cfg.get("bf16", False))
+    deepspeed = cfg.get("deepspeed")
 
     torch.manual_seed(seed)
 
@@ -239,8 +251,9 @@ def main():
         num_train_epochs=1,
         max_steps=max_steps,
         lr_scheduler_type=scheduler,
-        fp16=False,
-        bf16=False,
+        fp16=fp16,
+        bf16=bf16,
+        deepspeed=deepspeed,
         logging_dir=os.path.join(output_dir, "logs"),
         report_to=["wandb"] if tracking_cfg.get("use_wandb", False) else ["none"],
         save_strategy=tracking_cfg.get("checkpoint_strategy", {}).get("save_strategy", "steps"),
